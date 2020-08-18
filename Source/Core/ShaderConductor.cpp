@@ -570,7 +570,7 @@ namespace
     }
 
     Compiler::ResultDesc CrossCompile(const Compiler::ResultDesc& binaryResult, const Compiler::SourceDesc& source,
-                                      const Compiler::TargetDesc& target)
+                                      const Compiler::TargetDesc& target, const Compiler::Options& options)
     {
         assert((target.language != ShadingLanguage::Dxil) && (target.language != ShadingLanguage::SpirV));
         assert((binaryResult.target->Size() & (sizeof(uint32_t) - 1)) == 0);
@@ -789,6 +789,26 @@ namespace
         {
             compiler->build_combined_image_samplers();
 
+            if (options.combinedSamplersInheritBindings)
+            {
+                // From spirv_cross_util.cpp
+                auto& samplers = compiler->get_combined_image_samplers();
+                for (auto& s : samplers)
+                {
+                    if (compiler->has_decoration(s.image_id, spv::DecorationDescriptorSet))
+                    {
+                        uint32_t set = compiler->get_decoration(s.image_id, spv::DecorationDescriptorSet);
+                        compiler->set_decoration(s.combined_id, spv::DecorationDescriptorSet, set);
+                    }
+
+                    if (compiler->has_decoration(s.image_id, spv::DecorationBinding))
+                    {
+                        uint32_t binding = compiler->get_decoration(s.image_id, spv::DecorationBinding);
+                        compiler->set_decoration(s.combined_id, spv::DecorationBinding, binding);
+                    }
+                }
+            }
+
             for (auto& remap : compiler->get_combined_image_samplers())
             {
                 compiler->set_name(remap.combined_id,
@@ -825,7 +845,7 @@ namespace
     }
 
     Compiler::ResultDesc ConvertBinary(const Compiler::ResultDesc& binaryResult, const Compiler::SourceDesc& source,
-                                       const Compiler::TargetDesc& target)
+                                       const Compiler::TargetDesc& target, const Compiler::Options& options)
     {
         if (!binaryResult.hasError)
         {
@@ -846,7 +866,7 @@ namespace
                 case ShadingLanguage::Essl:
                 case ShadingLanguage::Msl_macOS:
                 case ShadingLanguage::Msl_iOS:
-                    return CrossCompile(binaryResult, source, target);
+                    return CrossCompile(binaryResult, source, target, options);
 
                 default:
                     llvm_unreachable("Invalid shading language.");
@@ -959,7 +979,7 @@ namespace ShaderConductor
             {
                 binaryResult.errorWarningMsg = CreateBlob(binaryResult.errorWarningMsg->Data(), binaryResult.errorWarningMsg->Size());
             }
-            results[i] = ConvertBinary(binaryResult, sourceOverride, targets[i]);
+            results[i] = ConvertBinary(binaryResult, sourceOverride, targets[i], options);
         }
 
         if (hasDxil)
@@ -1080,7 +1100,7 @@ namespace ShaderConductor
         Compiler::SourceDesc source{};
         source.entryPoint = modules.entryPoint;
         source.stage = modules.stage;
-        return ConvertBinary(binaryResult, source, target);
+        return ConvertBinary(binaryResult, source, target, options);
     }
 } // namespace ShaderConductor
 
